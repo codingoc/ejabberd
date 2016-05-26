@@ -343,7 +343,8 @@ get_subscribed(FsmRef) ->
 
 wait_for_stream({xmlstreamstart, _Name, Attrs}, StateData) ->
     DefaultLang = ?MYLANG,
-    case fxml:get_attr_s(<<"xmlns:stream">>, Attrs) of
+    
+	case fxml:get_attr_s(<<"xmlns:stream">>, Attrs) of
 	?NS_STREAM ->
 	    Server =
 		case StateData#state.server of
@@ -373,83 +374,106 @@ wait_for_stream({xmlstreamstart, _Name, Attrs}, StateData) ->
 			    send_header(StateData, Server, <<"1.0">>, DefaultLang),
 			    case StateData#state.authenticated of
 				false ->
-				    TLS = StateData#state.tls,
-				    TLSEnabled = StateData#state.tls_enabled,
-				    TLSRequired = StateData#state.tls_required,
-				    SASLState = cyrsasl:server_new(
-					    <<"jabber">>, Server, <<"">>, [],
-					    fun (U) ->
-						    ejabberd_auth:get_password_with_authmodule(
-							U, Server)
-					    end,
-					  fun(U, AuthzId, P) ->
-						    ejabberd_auth:check_password_with_authmodule(
-						    U, AuthzId, Server, P)
-					    end,
-					  fun(U, AuthzId, P, D, DG) ->
-						    ejabberd_auth:check_password_with_authmodule(
-						    U, AuthzId, Server, P, D, DG)
-					    end),
-				    Mechs =
-					case TLSEnabled or not TLSRequired of
-					true ->
-					    Ms = lists:map(fun (S) ->
-							    #xmlel{name = <<"mechanism">>,
-								attrs = [],
-								children = [{xmlcdata, S}]}
+					%% cc 解析AppID和token
+					{Appid, Token} = {fxml:get_attr_s(<<"appid">>, Attrs), fxml:get_attr_s(<<"token">>, Attrs)},
+					{Result, Info} = if (Appid == <<"">>) or (Token == <<"">>) -> 
+						{false, <<"No Appid or Token given.">>};
+						true -> 
+						%% 去token服务器验证token
+						case verify_appid_token(Appid, Token) of 
+							{true, _} -> 
+								{true, <<"Appid: ", Appid/binary, "  ", "Token: ", Token/binary>>};
+							{false, Reason} -> 
+								{false, Reason}
+							end
+					end,
+					?DEBUG("CCDEBUG: ~s", [Info]),
+					case Result of
+						false -> 
+							send_element(StateData,
+									?POLICY_VIOLATION_ERR(<<"en">>,
+									    <<"Use of Appid and Token required">>)),
+							{stop, normal, StateData};
+						_ -> 
+							TLS = StateData#state.tls,
+						    TLSEnabled = StateData#state.tls_enabled,
+						    TLSRequired = StateData#state.tls_required,
+						    SASLState = cyrsasl:server_new(
+							    <<"jabber">>, Server, <<"">>, [],
+							    fun (U) ->
+								    ejabberd_auth:get_password_with_authmodule(
+									U, Server)
+							    end,
+							  fun(U, AuthzId, P) ->
+								    ejabberd_auth:check_password_with_authmodule(
+								    U, AuthzId, Server, P)
+							    end,
+							  fun(U, AuthzId, P, D, DG) ->
+								    ejabberd_auth:check_password_with_authmodule(
+								    U, AuthzId, Server, P, D, DG)
+							    end),
+						    Mechs =
+							case TLSEnabled or not TLSRequired of
+							true ->
+							    Ms = lists:map(fun (S) ->
+									    #xmlel{name = <<"mechanism">>,
+										attrs = [],
+										children = [{xmlcdata, S}]}
+								    end,
+								    cyrsasl:listmech(Server)),
+							    [#xmlel{name = <<"mechanisms">>,
+								    attrs = [{<<"xmlns">>, ?NS_SASL}],
+								    children = Ms}];
+							false ->
+							    []
 						    end,
-						    cyrsasl:listmech(Server)),
-					    [#xmlel{name = <<"mechanisms">>,
-						    attrs = [{<<"xmlns">>, ?NS_SASL}],
-						    children = Ms}];
-					false ->
-					    []
-				    end,
-				    SockMod =
-					(StateData#state.sockmod):get_sockmod(StateData#state.socket),
-				    Zlib = StateData#state.zlib,
-				    CompressFeature = case Zlib andalso
-					((SockMod == gen_tcp) orelse (SockMod == fast_tls)) of
-					true ->
-					    [#xmlel{name = <<"compression">>,
-						    attrs = [{<<"xmlns">>, ?NS_FEATURE_COMPRESS}],
-						    children = [#xmlel{name = <<"method">>,
+						    SockMod =
+							(StateData#state.sockmod):get_sockmod(StateData#state.socket),
+						    Zlib = StateData#state.zlib,
+						    CompressFeature = case Zlib andalso
+							((SockMod == gen_tcp) orelse (SockMod == fast_tls)) of
+							true ->
+							    [#xmlel{name = <<"compression">>,
+								    attrs = [{<<"xmlns">>, ?NS_FEATURE_COMPRESS}],
+								    children = [#xmlel{name = <<"method">>,
+									    attrs = [],
+									    children = [{xmlcdata, <<"zlib">>}]}]}];
+							_ ->
+							    []
+						    end,
+						    TLSFeature =
+							case (TLS == true) andalso
+							(TLSEnabled == false) andalso
+							(SockMod == gen_tcp) of
+							true ->
+							    case TLSRequired of
+								true ->
+								    [#xmlel{name = <<"starttls">>,
+									    attrs = [{<<"xmlns">>, ?NS_TLS}],
+									    children = [#xmlel{name = <<"required">>,
+										    attrs = [],
+										    children = []}]}];
+								_ ->
+								    [#xmlel{name = <<"starttls">>,
+									    attrs = [{<<"xmlns">>, ?NS_TLS}],
+									    children = []}]
+							    end;
+							false ->
+							    []
+						    end,
+						    StreamFeatures1 = TLSFeature ++ CompressFeature ++ Mechs,
+						    StreamFeatures = ejabberd_hooks:run_fold(c2s_stream_features,
+							    Server, StreamFeatures1, [Server]),
+						    send_element(StateData,
+							#xmlel{name = <<"stream:features">>,
 							    attrs = [],
-							    children = [{xmlcdata, <<"zlib">>}]}]}];
-					_ ->
-					    []
-				    end,
-				    TLSFeature =
-					case (TLS == true) andalso
-					(TLSEnabled == false) andalso
-					(SockMod == gen_tcp) of
-					true ->
-					    case TLSRequired of
-						true ->
-						    [#xmlel{name = <<"starttls">>,
-							    attrs = [{<<"xmlns">>, ?NS_TLS}],
-							    children = [#xmlel{name = <<"required">>,
-								    attrs = [],
-								    children = []}]}];
-						_ ->
-						    [#xmlel{name = <<"starttls">>,
-							    attrs = [{<<"xmlns">>, ?NS_TLS}],
-							    children = []}]
-					    end;
-					false ->
-					    []
-				    end,
-				    StreamFeatures1 = TLSFeature ++ CompressFeature ++ Mechs,
-				    StreamFeatures = ejabberd_hooks:run_fold(c2s_stream_features,
-					    Server, StreamFeatures1, [Server]),
-				    send_element(StateData,
-					#xmlel{name = <<"stream:features">>,
-					    attrs = [],
-					    children = StreamFeatures}),
-				    fsm_next_state(wait_for_feature_request,
-					StateData#state{server = Server,
-					    sasl_state = SASLState,
-					    lang = Lang});
+							    children = StreamFeatures}),
+						    fsm_next_state(wait_for_feature_request,
+							StateData#state{server = Server,
+							    sasl_state = SASLState,
+							    lang = Lang})
+					end;
+					%% cc
 				_ ->
 				    case StateData#state.resource of
 					<<"">> ->
@@ -3147,3 +3171,19 @@ opt_type(resource_conflict) ->
     end;
 opt_type(_) ->
     [domain_certfile, max_fsm_queue, resource_conflict].
+
+%% 去token服务器验证token
+verify_appid_token(Appid, Token) ->
+	?DEBUG("CCDEBUG: ~s", ["verify_appid_token start"]),
+	inets:start(),  
+    ssl:start(),  
+    case httpc:request(post,{"http://db.kms.com:8080/AccountSystem/vertifytoken",  
+        [],"application/x-www-form-urlencoded", lists:concat(["appid=", binary_to_list(Appid), "&token=", binary_to_list(Token), "&type=", "xml"])},[],[]) of   
+        {ok, {_,_,Body}} ->
+        	?DEBUG("CCDEBUG: ~s", [Body]), 
+        	{true, Body};
+        {error, Reason} ->
+          	{false, Reason}
+    end.
+
+
