@@ -15,7 +15,7 @@ build_project:
  script:
   - test -f ${EJABBERDCTL} && ${EJABBERDCTL} stop
   - ./autogen.sh
-  - ./configure --prefix=${PREFIX} --enable-all
+  - ./configure --prefix=${PREFIX}
   - make
   - make install
  only:
