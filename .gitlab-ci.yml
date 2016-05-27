@@ -1,0 +1,35 @@
+stages:
+ - build
+ - deploy
+
+before_script:
+ - PREFIX=/tmp/ejabberd
+ - EJABBERD_CONFIG_PATH=${PREFIX}/etc/ejabberd
+ - EJABBERD_CONFIG=${EJABBERD_CONFIG_PATH}/ejabberd.yml
+ - EJABBERDCTL_CONFIG=${EJABBERD_CONFIG_PATH}/ejabberdctl.cfg
+ - EJABBERDCTL=${PREFIX}/sbin/ejabberdctl
+ - export LC_CTYPE=en_US.UTF-8
+
+build_project:
+ stage: build
+ script:
+  - if [ -f ${EJABBERDCTL} ] then; ${EJABBERDCTL} stop; fi
+  - ./autogen.sh
+  - ./configure --prefix=${PREFIX} --enable-all
+  - make
+  - make install
+ only:
+  - dev
+
+deploy_project:
+ stage: deploy
+ script:
+  - sed 's/^ *- "\(localhost\)"/  - "lion.kms.com"/'  ${EJABBERD_CONFIG} > ${EJABBERD_CONFIG_PATH}/ejabberd_tmp.yml
+  - rm -rf ${EJABBERD_CONFIG}
+  - mv ${EJABBERD_CONFIG_PATH}/ejabberd_tmp.yml ${EJABBERD_CONFIG}
+  - sed 's/#ERLANG_NODE=ejabberd@localhost/ERLANG_NODE=ejabberd@lion.kms.com/' ${EJABBERDCTL_CONFIG} > ${EJABBERD_CONFIG_PATH}/ejabberdctl_tmp.cfg
+  - rm -rf ${EJABBERDCTL_CONFIG}
+  - mv ${EJABBERD_CONFIG_PATH}/ejabberdctl_tmp.yml ${EJABBERDCTL_CONFIG}
+  - ${EJABBERDCTL} start
+ only:
+  - dev
