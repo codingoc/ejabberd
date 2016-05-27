@@ -203,6 +203,8 @@ init_per_testcase(TestCase, OrigConfig) ->
             auth(connect(Config));
 	sm_resume ->
 	    auth(connect(Config));
+	sm_resume_failed ->
+	    auth(connect(Config));
         test_open_session ->
             bind(auth(connect(Config)));
         _ when IsMaster or IsSlave ->
@@ -231,6 +233,7 @@ no_db_tests() ->
        stats,
        sm,
        sm_resume,
+       sm_resume_failed,
        disco]},
      {test_proxy65, [parallel],
       [proxy65_master, proxy65_slave]}].
@@ -641,6 +644,17 @@ sm_resume(Config) ->
     ?recv1(#message{from = ServerJID, to = MyJID, body = [Txt]}),
     ?recv1(#sm_r{}),
     send(Config, #sm_a{h = 1, xmlns = ?NS_STREAM_MGMT_3}),
+    %% Send another stanza to increment the server's 'h' for sm_resume_failed.
+    send(Config, #presence{to = ServerJID}),
+    close_socket(Config),
+    {save_config, set_opt(sm_previd, ID, Config)}.
+
+sm_resume_failed(Config) ->
+    {sm_resume, SMConfig} = ?config(saved_config, Config),
+    ID = ?config(sm_previd, SMConfig),
+    ct:sleep(5000), % Wait for session to time out.
+    send(Config, #sm_resume{previd = ID, h = 1, xmlns = ?NS_STREAM_MGMT_3}),
+    ?recv1(#sm_failed{reason = 'item-not-found', h = 4}),
     disconnect(Config).
 
 private(Config) ->
@@ -1435,6 +1449,11 @@ muc_master(Config) ->
 			    items = [#muc_item{affiliation = member,
 					       jid = PeerJID,
 					       role = participant}]}]}),
+    ?recv1(#message{from = Room,
+	      sub_els = [#muc_user{
+			    items = [#muc_item{affiliation = member,
+					       jid = Localhost,
+					       role = none}]}]}),
     %% BUG: We should not receive any sub_els!
     ?recv1(#iq{type = result, id = I1, sub_els = [_|_]}),
     %% Receive groupchat message from the peer
@@ -2255,15 +2274,46 @@ client_state_master(Config) ->
     ChatState = #message{to = Peer, thread = <<"1">>,
 			 sub_els = [#chatstate{type = active}]},
     Message = ChatState#message{body = [#text{data = <<"body">>}]},
+    PepPayload = xmpp_codec:encode(#presence{}),
+    PepOne = #message{
+		to = Peer,
+		sub_els =
+		    [#pubsub_event{
+			items =
+			    [#pubsub_event_items{
+				node = <<"foo-1">>,
+				items =
+				    [#pubsub_event_item{
+					id = <<"pep-1">>,
+					xml_els = [PepPayload]}]}]}]},
+    PepTwo = #message{
+		to = Peer,
+		sub_els =
+		    [#pubsub_event{
+			items =
+			    [#pubsub_event_items{
+				node = <<"foo-2">>,
+				items =
+				    [#pubsub_event_item{
+					id = <<"pep-2">>,
+					xml_els = [PepPayload]}]}]}]},
     %% Wait for the slave to become inactive.
     wait_for_slave(Config),
-    %% Should be dropped:
-    send(Config, ChatState),
     %% Should be queued (but see below):
     send(Config, Presence),
     %% Should replace the previous presence in the queue:
     send(Config, Presence#presence{type = unavailable}),
-    %% Should be sent immediately, together with the previous presence:
+    %% The following two PEP stanzas should be queued (but see below):
+    send(Config, PepOne),
+    send(Config, PepTwo),
+    %% The following two PEP stanzas should replace the previous two:
+    send(Config, PepOne),
+    send(Config, PepTwo),
+    %% Should be queued (but see below):
+    send(Config, ChatState),
+    %% Should replace the previous chat state in the queue:
+    send(Config, ChatState#message{sub_els = [#chatstate{type = composing}]}),
+    %% Should be sent immediately, together with the queued stanzas:
     send(Config, Message),
     %% Wait for the slave to become active.
     wait_for_slave(Config),
@@ -2277,6 +2327,31 @@ client_state_slave(Config) ->
     wait_for_master(Config),
     ?recv1(#presence{from = Peer, type = unavailable,
 		     sub_els = [#delay{}]}),
+    #message{
+       from = Peer,
+       sub_els =
+	   [#pubsub_event{
+	       items =
+		   [#pubsub_event_items{
+		       node = <<"foo-1">>,
+		       items =
+			   [#pubsub_event_item{
+			       id = <<"pep-1">>}]}]},
+	    #delay{}]} = recv(),
+    #message{
+       from = Peer,
+       sub_els =
+	   [#pubsub_event{
+	       items =
+		   [#pubsub_event_items{
+		       node = <<"foo-2">>,
+		       items =
+			   [#pubsub_event_item{
+			       id = <<"pep-2">>}]}]},
+	    #delay{}]} = recv(),
+    ?recv1(#message{from = Peer, thread = <<"1">>,
+		    sub_els = [#chatstate{type = composing},
+			       #delay{}]}),
     ?recv1(#message{from = Peer, thread = <<"1">>,
 		    body = [#text{data = <<"body">>}],
 		    sub_els = [#chatstate{type = active}]}),
