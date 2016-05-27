@@ -29,7 +29,7 @@ deploy_project:
   - mv ${EJABBERD_CONFIG_PATH}/ejabberd_tmp.yml ${EJABBERD_CONFIG}
   - sed 's/#ERLANG_NODE=ejabberd@localhost/ERLANG_NODE=ejabberd@lion.kms.com/' ${EJABBERDCTL_CONFIG} > ${EJABBERD_CONFIG_PATH}/ejabberdctl_tmp.cfg
   - rm -rf ${EJABBERDCTL_CONFIG}
-  - mv ${EJABBERD_CONFIG_PATH}/ejabberdctl_tmp.yml ${EJABBERDCTL_CONFIG}
+  - mv ${EJABBERD_CONFIG_PATH}/ejabberdctl_tmp.cfg ${EJABBERDCTL_CONFIG}
   - ${EJABBERDCTL} start
  only:
   - dev
