@@ -15,7 +15,7 @@ build_project:
  script:
   - test -f ${EJABBERDCTL} && ${EJABBERDCTL} stop
   - ./autogen.sh
-  - ./configure --prefix=${PREFIX}
+  - ./configure --prefix=${PREFIX} --with-erlang=/usr/local/lib/erlang
   - make
   - make install
  only:
