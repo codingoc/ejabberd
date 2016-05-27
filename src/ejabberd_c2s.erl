@@ -387,7 +387,7 @@ wait_for_stream({xmlstreamstart, _Name, Attrs}, StateData) ->
 								{false, Reason}
 							end
 					end,
-					?DEBUG("CCDEBUG: ~s", [Info]),
+					?DEBUG("CCDEBUG: Verify Appid and Token Result ~s", [Info]),
 					case Result of
 						false -> 
 							send_element(StateData,
@@ -3175,15 +3175,29 @@ opt_type(_) ->
 %% 去token服务器验证token
 verify_appid_token(Appid, Token) ->
 	?DEBUG("CCDEBUG: ~s", ["verify_appid_token start"]),
-	inets:start(),  
-    ssl:start(),  
-    case httpc:request(post,{"http://db.kms.com:8080/AccountSystem/vertifytoken",  
-        [],"application/x-www-form-urlencoded", lists:concat(["appid=", binary_to_list(Appid), "&token=", binary_to_list(Token), "&type=", "xml"])},[],[]) of   
-        {ok, {_,_,Body}} ->
-        	?DEBUG("CCDEBUG: ~s", [Body]), 
-        	{true, Body};
-        {error, Reason} ->
-          	{false, Reason}
+	Method = post,
+	URL = "http://db.kms.com:8080/AccountSystem/vertifytoken",
+	Header = [],
+	Type = "application/x-www-form-urlencoded",
+	Body = lists:concat(["appid=", binary_to_list(Appid), "&token=", binary_to_list(Token), "&type=", "xml"]),
+	HTTPOptions = [],
+	Options = [],
+    case httpc:request(Method, {URL, Header, Type, Body}, HTTPOptions, Options) of   
+        {ok, {_, _, ResponseBody}} ->
+        	?DEBUG("CCDEBUG: Token verify request response  ~s", [ResponseBody]), 
+        	#xmlel{
+        	name = <<"data">>, 
+        	children = [
+        	#xmlel{name = <<"code">>, children = [{xmlcdata, Code}]}, 
+        	#xmlel{name = <<"alt">>, children = [{xmlcdata, Alt}]}, 
+        	#xmlel{name = <<"notifytime">>, children = [{xmlcdata, _}]}
+        	]} = fxml_stream:parse_element(<<(list_to_binary(ResponseBody))/binary>>),
+        	case Code of
+        		<<"200">> -> {true, Alt};
+        		_ -> {false, Alt}
+        	end;
+    	{error, Reason} ->
+      		{false, Reason}
     end.
 
 
