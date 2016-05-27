@@ -13,7 +13,7 @@ before_script:
 build_project:
  stage: build
  script:
-  - if [ -f ${EJABBERDCTL} ] then; ${EJABBERDCTL} stop; fi
+  - test -f ${EJABBERDCTL} && ${EJABBERDCTL} stop
   - ./autogen.sh
   - ./configure --prefix=${PREFIX} --enable-all
   - make
