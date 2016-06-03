@@ -357,7 +357,8 @@ message(From, To, Packet) ->
 %%   </register>
 %% </iq>
 
-iq(#jid{user = User, server = Server}, _, #iq{sub_el = SubEl} = IQ) ->
+iq(#jid{user = User, server = Server}, _, #iq{type = set, sub_el = SubEl} = IQ) ->
+	?DEBUG("mod_kmsns: Recv IQ -> ~p | SubEl -> ~p", [IQ, SubEl]),
 	LUser = jlib:nodeprep(User),
 	LServer = jlib:nameprep(Server),
 
@@ -365,10 +366,10 @@ iq(#jid{user = User, server = Server}, _, #iq{sub_el = SubEl} = IQ) ->
 	TimeStamp = MegaSecs * 1000000 + Secs,
 
 	% 设备token
-	Token = xml:get_tag_cdata(xml:get_subtag(SubEl, <<"token">>)),
-	NodeType = xml:get_tag_cdata(xml:get_subtag(SubEl, <<"node">>)),
-	AppID = xml:get_tag_cdata(xml:get_subtag(SubEl, <<"app_id">>)),
-	AppToken = xml:get_tag_cdata(xml:get_subtag(SubEl, <<"app_token">>)),
+	Token = fxml:get_tag_cdata(fxml:get_subtag(SubEl, <<"token">>)),
+	NodeType = fxml:get_tag_cdata(fxml:get_subtag(SubEl, <<"node">>)),
+	AppID = fxml:get_tag_cdata(fxml:get_subtag(SubEl, <<"appid">>)),
+	AppToken = fxml:get_tag_cdata(fxml:get_subtag(SubEl, <<"apptoken">>)),
 
 	% -record(kmsns_users, {user, token, last_seen, node_type, app_id, app_token}).
 	F = fun() -> mnesia:write(#kmsns_users{user={LUser, LServer}, token=Token, last_seen=TimeStamp, 
@@ -413,9 +414,9 @@ stop(_) -> ok.
 % mod_opt_type(password) -> fun iolist_to_binary/1;
 mod_opt_type(certinfo) -> fun iolist_to_binary/1;
 mod_opt_type(apnshost) -> fun iolist_to_binary/1;
-mod_opt_type(apnsport) -> fun iolist_to_binary/1;
+mod_opt_type(apnsport) -> fun(I) when is_integer(I) -> I end;
 mod_opt_type(env) -> fun iolist_to_binary/1;
 mod_opt_type(jpushhost) -> fun iolist_to_binary/1;
 mod_opt_type(jpushport) -> fun(I) when is_integer(I) -> I end;
 mod_opt_type(_) ->
-    [address, port, certfile, keyfile, password].
+    [certinfo, apnshost, apnshost, env, jpushhost, jpushport].
