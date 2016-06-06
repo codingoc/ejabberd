@@ -8,6 +8,7 @@
 -include("ejabberd.hrl").
 -include("logger.hrl").
 -include("jlib.hrl").
+-include("ejabberd_sql_pt.hrl").
 
 -behaviour(gen_mod).
 
@@ -16,7 +17,7 @@
 -record(kmsns_users, {user, token, last_seen, node_type, app_id, app_token}).
 
 %% 缓存每个App的推送证书
--record(kmsns_certs, {app_id, apnscertkey, apnscertkeydev, jpushkey, jpushsecret, xiaomikey, xiaomisecret, updatedate}).
+-record(kmsns_certs, {app_id, apnscert, apnscertdev, jpushkey, jpushsecret, xiaomikey, xiaomisecret, updatedate}).
 
 -define(NS_KMSNS, "https://kuaimashi.com/push"). %% 快马仕push namespace
 
@@ -77,8 +78,8 @@ request_cert_for_apns(Host, AppID) ->
         	#xmlel{name = <<"code">>, children = [{xmlcdata, Code}]}, 
         	#xmlel{name = <<"alt">>, children = [{xmlcdata, Alt}]}, 
         	#xmlel{name = <<"data">>, children = [
-        		#xmlel{name = <<"apnscertkey">>, children = [{xmlcdata, ApnsCertBase64}]},
-        		#xmlel{name = <<"apnscertkeydev">>, children = [{xmlcdata, ApnsCertDevBase64}]}        		
+        		#xmlel{name = <<"apnscert">>, children = [{xmlcdata, ApnsCertBase64}]},
+        		#xmlel{name = <<"apnscertdev">>, children = [{xmlcdata, ApnsCertDevBase64}]}
         	]},
         	#xmlel{name = <<"notifytime">>, children = [{xmlcdata, _}]}
         	]} = fxml_stream:parse_element(<<(list_to_binary(ResponseBody))/binary>>),
@@ -93,23 +94,38 @@ request_cert_for_apns(Host, AppID) ->
         				<<"">> -> <<"">>;
         				_ -> base64:decode(ApnsCertDevBase64)
         			end,
-        			%% TODO: 存储到数据库缓存
-        			%% -record(kmsns_certs, {app_id, apnscertkey, apnscertkeydev, jpushkey, jpushsecret, xiaomikey, xiaomisecret, updatedate}).
+        			%% 存储到数据库缓存
+        			%% -record(kmsns_certs, {app_id, apnscert, apnscertdev, jpushkey, jpushsecret, xiaomikey, xiaomisecret, updatedate}).
         			{MegaSecs, Secs, _MicroSecs} = erlang:timestamp(),
 					TimeStamp = MegaSecs * 1000000 + Secs,
-        			F = fun() -> 
-        				mnesia:write(#kmsns_certs{app_id=AppID, apnscertkey=ApnsCert, apnscertkeydev=ApnsCertDev, 
-        				jpushkey= <<"">>, jpushsecret= <<"">>, xiaomikey= <<"">>, xiaomisecret= <<"">>, updatedate=TimeStamp}) 
-        			end,
-        			case mnesia:dirty_read(kmsns_certs, AppID) of
-        				[] ->
-        					mnesia:transaction(F),
-        					?DEBUG("mod_kmsns: New Apns cert insert for AppID: ~p", [AppID]);
-        				[#kmsns_certs{app_id=AppID}] ->
-        					mnesia:transaction(F),
-        					?DEBUG("mod_kmsns: Update Apns cert for AppID: ~p", [AppID])
-        			end, 
-        			%%
+					%% mysql 数据库
+					Table = <<"push_cert">>,
+					Fields = [<<"appid">>, <<"apnscert">>, <<"apnscertdev">>, <<"updatetime">>],
+					Vals = [AppID, ApnsCert, ApnsCertDev, list_to_binary(integer_to_list(TimeStamp))],
+					Where = <<"appid", "='", AppID/binary, "'">>,
+					case catch sql_queries:update(Host, Table, Fields, Vals, Where) of 
+						ok -> 
+							?DEBUG("mod_kmsns: insert/update new apns cert into table ~p for appid [~p].", [Table, AppID]);
+						Reason ->
+							?DEBUG("mod_kmsns: update table ~p for appid [~p], error ~p.", [Table, AppID, Reason])
+					end,
+					%% mysql 数据库
+
+        			%% mnesia数据库
+        			% F = fun() -> 
+        			% 	mnesia:write(#kmsns_certs{app_id=AppID, apnscert=ApnsCert, apnscertdev=ApnsCertDev, 
+        			% 	jpushkey= <<"">>, jpushsecret= <<"">>, xiaomikey= <<"">>, xiaomisecret= <<"">>, updatedate=TimeStamp}) 
+        			% end,
+        			% case mnesia:dirty_read(kmsns_certs, AppID) of
+        			% 	[] ->
+        			% 		mnesia:transaction(F),
+        			% 		?DEBUG("mod_kmsns: New Apns cert insert for AppID: ~p", [AppID]);
+        			% 	[#kmsns_certs{app_id=AppID}] ->
+        			% 		mnesia:transaction(F),
+        			% 		?DEBUG("mod_kmsns: Update Apns cert for AppID: ~p", [AppID])
+        			% end, 
+        			%% mnesia数据库
+
         			{true, Alt, ApnsCert, ApnsCertDev};
         		_ -> {false, Alt, <<"">>, <<"">>}
         	end;
@@ -143,23 +159,38 @@ request_jpush_key_secret(Host, AppID) ->
         	]} = fxml_stream:parse_element(<<(list_to_binary(ResponseBody))/binary>>),
         	case Code of
         		<<"200">> -> 
-        			%% TODO: 存储到数据库缓存
-        			%% -record(kmsns_certs, {app_id, apnscertkey, apnscertkeydev, jpushkey, jpushsecret, xiaomikey, xiaomisecret, updatedate}).
+        			%% 存储到数据库缓存
+        			%% -record(kmsns_certs, {app_id, apnscert, apnscertdev, jpushkey, jpushsecret, xiaomikey, xiaomisecret, updatedate}).
         			{MegaSecs, Secs, _MicroSecs} = erlang:timestamp(),
-					TimeStamp = MegaSecs * 1000000 + Secs,
-        			F = fun() -> 
-        				mnesia:write(#kmsns_certs{app_id=AppID, apnscertkey= <<"">>, apnscertkeydev= <<"">>, 
-        				jpushkey=JPushKey, jpushsecret=JPushSecret, xiaomikey= <<"">>, xiaomisecret= <<"">>, updatedate=TimeStamp}) 
-        			end,
-        			case mnesia:dirty_read(kmsns_certs, AppID) of
-        				[] ->
-        					mnesia:transaction(F),
-        					?DEBUG("mod_kmsns: New jpush key secret insert for AppID: ~p", [AppID]);
-        				[#kmsns_certs{app_id=AppID}] ->
-        					mnesia:transaction(F),
-        					?DEBUG("mod_kmsns: Update jpush key secret for AppID: ~p", [AppID])
-        			end, 
-        			%%
+					TimeStamp = MegaSecs * 1000000 + Secs,        			
+        			%% mysql数据库
+        			Table = <<"push_cert">>,
+					Fields = [<<"appid">>, <<"jpushkey">>, <<"jpushsecret">>, <<"updatetime">>],
+					Vals = [AppID, JPushKey, JPushSecret, list_to_binary(integer_to_list(TimeStamp))],
+					Where = <<"appid", "='", AppID/binary, "'">>,
+					case catch sql_queries:update(Host, Table, Fields, Vals, Where) of 
+						ok -> 
+							?DEBUG("mod_kmsns: insert/update new jpush cert into table ~p for appid [~p].", [Table, AppID]);
+						Reason ->
+							?DEBUG("mod_kmsns: update table ~p for appid [~p], error ~p.", [Table, AppID, Reason])
+					end,
+        			%% mysql数据库
+
+        			%% mnesia数据库
+        			% F = fun() -> 
+        			% 	mnesia:write(#kmsns_certs{app_id=AppID, apnscert= <<"">>, apnscertdev= <<"">>, 
+        			% 	jpushkey=JPushKey, jpushsecret=JPushSecret, xiaomikey= <<"">>, xiaomisecret= <<"">>, updatedate=TimeStamp}) 
+        			% end,
+        			% case mnesia:dirty_read(kmsns_certs, AppID) of
+        			% 	[] ->
+        			% 		mnesia:transaction(F),
+        			% 		?DEBUG("mod_kmsns: New jpush key secret insert for AppID: ~p", [AppID]);
+        			% 	[#kmsns_certs{app_id=AppID}] ->
+        			% 		mnesia:transaction(F),
+        			% 		?DEBUG("mod_kmsns: Update jpush key secret for AppID: ~p", [AppID])
+        			% end, 
+        			%% mnesia数据库
+
         			{true, Alt, JPushKey, JPushSecret};
         		_ -> {false, Alt, <<"">>, <<"">>}
         	end;
@@ -169,18 +200,40 @@ request_jpush_key_secret(Host, AppID) ->
 
 % partially done by uwe-arzt.de
 send_payload(apns, Host, Payload, Token, AppID, _) ->
-	%% TODO: 读取缓存中证书文件
-	Record = mnesia:dirty_read(kmsns_certs, AppID),
-	{Result, Info, Cert, CertDev} = case Record of 
-		[] ->
-			?DEBUG("mod_kmsns: No APNS cert records found for AppID: ~p, try from http and then cached.", [AppID]),
-			%%
-			request_cert_for_apns(Host, AppID);
-			%%
-		[#kmsns_certs{app_id=AppIDCached, apnscertkey=ApnsCertCached, apnscertkeydev=ApnsCertDevCached}] -> 
-			?DEBUG("mod_kmsns: Found APNS cert record for AppID: ~p.", [AppIDCached]),
-			{true, "Found APNS cert from local cached", ApnsCertCached, ApnsCertDevCached}
+	%% 读取缓存中证书文件
+	%% mysql数据库
+	Table = <<"push_cert">>,
+	SQLList = [<<"select">>, <<" apnscert, apnscertdev ">>, <<"from ">>, Table, <<" where appid=">>, <<"'">>, AppID, <<"'">>],
+	Record = ejabberd_sql:sql_query(Host, SQLList),
+	{Result, Info, Cert, CertDev} = case Record of
+		{selected, _, R} ->
+			case R of 
+				[] -> 
+					?DEBUG("mod_kmsns: No APNS cert records found for AppID: ~p, try from http and then cached.", [AppID]),
+					request_cert_for_apns(Host, AppID);
+				[H|_] ->
+					[ApnsCert, ApnsCertDev] = H,
+					{true, "Found APNS cert from db", ApnsCert, ApnsCertDev}
+			end;
+		Error ->
+			?DEBUG("mod_kmsns: Read APNS cert from db faild, db error ~p", [Error]),
+			{false, "DB error", <<"">>, <<"">>}
 	end,
+	%% mysql数据库
+	
+	%% mnesia数据库
+	% Record = mnesia:dirty_read(kmsns_certs, AppID),
+	% {Result, Info, Cert, CertDev} = case Record of 
+	% 	[] ->
+	% 		?DEBUG("mod_kmsns: No APNS cert records found for AppID: ~p, try from http and then cached.", [AppID]),
+	% 		%%
+	% 		request_cert_for_apns(Host, AppID);
+	% 		%%
+	% 	[#kmsns_certs{app_id=AppIDCached, apnscert=ApnsCertCached, apnscertdev=ApnsCertDevCached}] -> 
+	% 		?DEBUG("mod_kmsns: Found APNS cert record for AppID: ~p.", [AppIDCached]),
+	% 		{true, "Found APNS cert from local cached", ApnsCertCached, ApnsCertDevCached}
+	% end,
+	%% mnesia数据库
 	case {Result, Info} of
 		{true, _} ->
 			%% 获取配置文件中部署环境，生产环境使用生产环境证书，开发环境使用开发环境证书
@@ -192,17 +245,19 @@ send_payload(apns, Host, Payload, Token, AppID, _) ->
 				"develop" -> CertDev
 			end,
 
-			?DEBUG("mod_kmsns: APNS trying to send payload with these parameters: Address: ~s Port: ~s Cert: ~s",
-				[ApnsHost, ApnsPort, FinalCert]),
+			?DEBUG("mod_kmsns: APNS trying to send payload with these parameters: Address: ~p Port: ~p Cert: ~p, Token: ~p Payload: ~p",
+				[ApnsHost, ApnsPort, FinalCert, Token, Payload]),
 
-			[{'Certificate', CertDER, not_encrypted}] = public_key:pem_decode(FinalCert),
+			[{'Certificate', CertDER, not_encrypted}, _, {'RSAPrivateKey', KeyDER, not_encrypted}] = public_key:pem_decode(FinalCert), 
 			Options = [{cert, CertDER},
-		             {versions, ['tlsv1.2']},
-		             {ciphers, ?CIPHERSUITES},
-		             {reuse_sessions, true},
-		             {secure_renegotiate, true}],
+					 {key, {'RSAPrivateKey', KeyDER}}
+		             %{versions, ['tlsv1.2']},
+		             % {ciphers, ?CIPHERSUITES},
+		             % {reuse_sessions, true},
+		             % {secure_renegotiate, true}],
 		             %{verify, verify_peer},
-		             %{cacertfile, CACertFile}],
+		             %{cacertfile, CACertFile}
+		             ],
 
 			case ssl:connect(ApnsHost, ApnsPort, Options, ?Timeout) of
 				{ok, Socket} ->
@@ -219,7 +274,7 @@ send_payload(apns, Host, Payload, Token, AppID, _) ->
 					>>,
 					ssl:send(Socket, Packet),
 					ssl:close(Socket),
-					?DEBUG("mod_kmsns: Successfully sent payload to the APNS server", []),
+					?DEBUG("mod_kmsns: Successfully sent payload [~p] to the APNS server", [Payload]),
 					ok;
 				{error, Reason} ->
 					?ERROR_MSG("mod_kmsns: Unable to connect to the APNS server: ~p", [Reason]),
@@ -230,15 +285,36 @@ send_payload(apns, Host, Payload, Token, AppID, _) ->
 			ok
 	end;
 send_payload(jpush, Host, Payload, _, AppID, _) ->
-	%% 
-	Record = mnesia:dirty_read(kmsns_certs, AppID),
-	{Result, Info, Key, Secret} = case Record of 
-		[] ->
-			?DEBUG("mod_kmsns: No jpush key secret records found for AppID: ~p, try from http and then cached.", [AppID]),
-			request_jpush_key_secret(Host, AppID);
-		[#kmsns_certs{app_id=AppID, jpushkey=JPushKey, jpushsecret=JPushSecret}] ->
-			{true, "mod_kmsns: Found jpush key secret records", JPushKey, JPushSecret}
+	%% mysql数据库
+	Table = <<"push_cert">>,
+	SQLList = [<<"select">>, <<" jpushkey, jpushsecret ">>, <<"from ">>, Table, <<" where appid=">>, <<"'">>, AppID, <<"'">>],
+	Record = ejabberd_sql:sql_query(Host, SQLList),
+	{Result, Info, Key, Secret} = case Record of
+		{selected, _, [H|_]} ->
+			case H of 
+				[] -> 
+					?DEBUG("mod_kmsns: No jpush key&secret records found for AppID: ~p, try from http and then cached.", [AppID]),
+					request_jpush_key_secret(Host, AppID);
+				_ ->
+					[JPushKey, JPushSecret] = H,
+					{true, "Found jpush key&secret from db", JPushKey, JPushSecret}
+			end;
+		Error ->
+			?DEBUG("mod_kmsns: Query jpush key&secret from db faild, db error ~p", [Error]),
+			{false, "DB error", <<"">>, <<"">>}
 	end,
+	%% mysql数据库
+	%% mnesia数据库 
+	% Record = mnesia:dirty_read(kmsns_certs, AppID),
+	% {Result, Info, Key, Secret} = case Record of 
+	% 	[] ->
+	% 		?DEBUG("mod_kmsns: No jpush key secret records found for AppID: ~p, try from http and then cached.", [AppID]),
+	% 		request_jpush_key_secret(Host, AppID);
+	% 	[#kmsns_certs{app_id=AppID, jpushkey=JPushKey, jpushsecret=JPushSecret}] ->
+	% 		{true, "mod_kmsns: Found jpush key secret records", JPushKey, JPushSecret}
+	% end,
+	%% mnesia数据库
+
 	case {Result, Info} of
 		{true, _} ->
 			%% 获取jpush配置
@@ -295,8 +371,8 @@ create_playload(_, _, _) ->
 	ok.
 
 message(From, To, Packet) ->
-	Type = xml:get_tag_attr_s(<<"type">>, Packet),
-	?DEBUG("Offline message", []),
+	Type = fxml:get_tag_attr_s(<<"type">>, Packet),
+	% ?DEBUG("Offline message", []),
 	case Type of 
 		"normal" -> ok;
 		_ ->
@@ -305,26 +381,31 @@ message(From, To, Packet) ->
 			JTo = jlib:jid_to_string(To#jid{user = To#jid.user, server = To#jid.server, resource = <<"">>}),
 			ToUser = To#jid.user,
 			ToServer = To#jid.server,
-			Body = xml:get_path_s(Packet, [{elem, <<"body">>}, cdata]),
+			Body = fxml:get_path_s(Packet, [{elem, <<"body">>}, cdata]),
+
+			?DEBUG("mod_kmsns: Offline message from [~p] to [~p], message body [\"~p\"].", [JFrom, JTo, Body]),
 
 			%% Checking subscription
 			{Subscription, _Groups} = 
 				ejabberd_hooks:run_fold(roster_get_jid_info, ToServer, {none, []}, [ToUser, ToServer, From]),
-			case Subscription of
+
+			?DEBUG("mod_kmsns: subscription, group = ~p, ~p.", [Subscription, _Groups]),
+			%% FIXME: subsciption
+			HackSubsciption = both,
+			case HackSubsciption of
 				both ->
 					case Body of
 						<<>> -> ok;
 						_ ->
-							Result = mnesia:dirty_read(kmsns_users, {ToUser, ToServer}),
-							case Result of 
-								[] ->
-									?DEBUG("mod_kmsns: No such record found for ~s", [JTo]);
-
-								[#kmsns_users{token = Token, node_type = NodeType, app_id = AppID, app_token = AppToken}] ->
-									%% 查找到了记录
-									%% 依据nodetype创建playload
+							%% mysql数据库
+							Table = <<"last_device">>,
+							case ejabberd_sql:sql_query(From#jid.server, [<<"select">>, <<" * ">>, <<"from ">>, Table, 
+								<<" where user=">>, <<"\"">>, ToUser, <<"\"">>, <<";">>]) of
+								{selected, _, [H|_]} ->
+									% 查询到了记录
+									[_, NodeType, DeviceToken, AppID, AppToken, _] = H,
 									case NodeType of
-										apns ->
+										<<"apns">> ->
 											Sound = "default",
 											%% TODO: Move binary_to_list to create_pair?
 											%% Badges?
@@ -332,19 +413,54 @@ message(From, To, Packet) ->
 											Args = [{source, binary_to_list(JFrom)}, {destination, binary_to_list(JTo)}],
 											Payload = create_playload(apns, Msg, Args),
 											%% 发送到apns
-											send_payload(apns, ToServer, Payload, Token, AppID, AppToken);
-										jpush ->
-											%% TODO: jpush
-											Payload = string_format(?JPUSH_OBJECT, [Token, Body, JFrom, JTo]),
-											send_payload(jpush, ToServer, Payload, Token, AppID, AppToken);
-										xiaomi ->
+											send_payload(apns, ToServer, Payload, DeviceToken, AppID, AppToken);
+										<<"jpush">> ->
+											Payload = string_format(?JPUSH_OBJECT, [DeviceToken, Body, JFrom, JTo]),
+											send_payload(jpush, ToServer, Payload, DeviceToken, AppID, AppToken);
+										<<"xiaomi">> ->
 											%% TODO: xiaomi
 											?DEBUG("mod_kmsns: has not implement for ~s", "xiaomipush");
-										_ -> ok
-									end
+										_ ->
+											ok
+									end;
+								_ -> 
+									?DEBUG("mod_kmsns: Not found user [~p] in Table ~p", [ToUser, Table])
 							end
-						end;
-					_ -> ok
+
+							%% mysql数据库
+
+							%% mnesia数据库
+							% Result = mnesia:dirty_read(kmsns_users, {ToUser, ToServer}),
+							% case Result of 
+							% 	[] ->
+							% 		?DEBUG("mod_kmsns: No such record found for ~s", [JTo]);
+
+							% 	[#kmsns_users{token = Token, node_type = NodeType, app_id = AppID, app_token = AppToken}] ->
+							% 		%% 查找到了记录
+							% 		%% 依据nodetype创建playload
+							% 		case NodeType of
+							% 			apns ->
+							% 				Sound = "default",
+							% 				%% TODO: Move binary_to_list to create_pair?
+							% 				%% Badges?
+							% 				Msg = [{alert, binary_to_list(Body)}, {sound, Sound}],
+							% 				Args = [{source, binary_to_list(JFrom)}, {destination, binary_to_list(JTo)}],
+							% 				Payload = create_playload(apns, Msg, Args),
+							% 				%% 发送到apns
+							% 				send_payload(apns, ToServer, Payload, Token, AppID, AppToken);
+							% 			jpush ->
+							% 				%% TODO: jpush
+							% 				Payload = string_format(?JPUSH_OBJECT, [Token, Body, JFrom, JTo]),
+							% 				send_payload(jpush, ToServer, Payload, Token, AppID, AppToken);
+							% 			xiaomi ->
+							% 				%% TODO: xiaomi
+							% 				?DEBUG("mod_kmsns: has not implement for ~s", "xiaomipush");
+							% 			_ -> ok
+							% 		end
+							% end
+							%% mnesia数据库
+					end;
+				_ -> ok
 			end
 	end.
 
@@ -358,9 +474,10 @@ message(From, To, Packet) ->
 %% </iq>
 
 iq(#jid{user = User, server = Server}, _, #iq{type = set, sub_el = SubEl} = IQ) ->
-	?DEBUG("mod_kmsns: Recv IQ -> ~p | SubEl -> ~p", [IQ, SubEl]),
+	%% ?DEBUG("mod_kmsns: Recv IQ -> ~p | SubEl -> ~p", [IQ, SubEl]),
 	LUser = jlib:nodeprep(User),
 	LServer = jlib:nameprep(Server),
+	?DEBUG("mod_kmsns: LUser=~p, LServer=~p", [LUser, LServer]),
 
 	{MegaSecs, Secs, _MicroSecs} = erlang:timestamp(),
 	TimeStamp = MegaSecs * 1000000 + Secs,
@@ -371,26 +488,41 @@ iq(#jid{user = User, server = Server}, _, #iq{type = set, sub_el = SubEl} = IQ) 
 	AppID = fxml:get_tag_cdata(fxml:get_subtag(SubEl, <<"appid">>)),
 	AppToken = fxml:get_tag_cdata(fxml:get_subtag(SubEl, <<"apptoken">>)),
 
-	% -record(kmsns_users, {user, token, last_seen, node_type, app_id, app_token}).
-	F = fun() -> mnesia:write(#kmsns_users{user={LUser, LServer}, token=Token, last_seen=TimeStamp, 
-		node_type=NodeType, app_id=AppID, app_token=AppToken}) end,
+	%% 写入mysql 的 lastdevice
+	Table = <<"last_device">>,
+	Fields = [<<"user">>, <<"nodetype">>, <<"token">>, <<"appid">>, <<"apptoken">>, <<"updatetime">>],
+	Vals = [User, NodeType, Token, AppID, AppToken, list_to_binary(integer_to_list(TimeStamp))],
+	Where = <<"user", "='", User/binary, "'">>,
+	case catch sql_queries:update(LServer, Table, Fields, Vals, Where) of 
+		ok -> 
+			?DEBUG("mod_kmsns: insert/update new user -> ~p into table last_device.", [User]);
+		Reason ->
+			?DEBUG("mod_kmsns: update table last_device for user -> ~p, error ~p.", [User, Reason])
+	end,
+	%% 写入mysql
 
-	case mnesia:dirty_read(kmsns_users, {LUser, LServer}) of
-		[] ->
-			mnesia:transaction(F),
-			?DEBUG("mod_kmsns: New user registered ~s@~s", [LUser, LServer]);
+	% mnesia数据库
+	% % -record(kmsns_users, {user, token, last_seen, node_type, app_id, app_token}).
+	% F = fun() -> mnesia:write(#kmsns_users{user={LUser, LServer}, token=Token, last_seen=TimeStamp, 
+	% 	node_type=NodeType, app_id=AppID, app_token=AppToken}) end,
 
-		%% Record exists, the key is equal to the one we know
-		[#kmsns_users{user={LUser, LServer}, token=Token}] ->
-			mnesia:transaction(F),
-			?DEBUG("mod_kmsns: Updating last_seen for user ~s@~s", [LUser, LServer]);
+	% case mnesia:dirty_read(kmsns_users, {LUser, LServer}) of
+	% 	[] ->
+	% 		mnesia:transaction(F),
+	% 		?DEBUG("mod_kmsns: New user registered ~s@~s", [LUser, LServer]);
 
-		%% Record for this key has been found, but for another key
-		[#kmsns_users{user={LUser, LServer}, token=Token}] ->
-			mnesia:transaction(F),
-			?DEBUG("mod_kmsns: Updating token for user ~s@~s", [LUser, LServer])
-		end,
-	
+	% 	%% Record exists, the key is equal to the one we know
+	% 	[#kmsns_users{user={LUser, LServer}, token=Token}] ->
+	% 		mnesia:transaction(F),
+	% 		?DEBUG("mod_kmsns: Updating last_seen for user ~s@~s", [LUser, LServer]);
+
+	% 	%% Record for this key has been found, but for another key
+	% 	[#kmsns_users{user={LUser, LServer}, token=Token}] ->
+	% 		mnesia:transaction(F),
+	% 		?DEBUG("mod_kmsns: Updating token for user ~s@~s", [LUser, LServer])
+	% 	end,
+	% mnesia数据库
+
 	IQ#iq{type=result, sub_el=[]}. %% We don't need the result, but the handler has to send something.
 
 
