@@ -40,15 +40,15 @@
   ],
   \"audience\": {
     \"registration_id\": [
-      \"~p\"
+      \"~s\"
     ]
   },
   \"notification\": {
-    \"alert\": \"~p\",
+    \"alert\": \"~s\",
     \"android\": {
       \"extras\": {
-        \"from\": \"~p\",
-        \"to\": \"~p\"
+        \"from\": \"~s\",
+        \"to\": \"~s\"
       }
     }
   }
@@ -213,7 +213,10 @@ send_payload(apns, Host, Payload, Token, AppID, _) ->
 					request_cert_for_apns(Host, AppID);
 				[H|_] ->
 					[ApnsCert, ApnsCertDev] = H,
-					{true, "Found APNS cert from db", ApnsCert, ApnsCertDev}
+					if (ApnsCert == <<"">>) or (ApnsCertDev == <<"">>) ->
+						request_cert_for_apns(Host, AppID);
+					true -> {true, "Found APNS cert from db", ApnsCert, ApnsCertDev}
+					end					
 			end;
 		Error ->
 			?DEBUG("mod_kmsns: Read APNS cert from db faild, db error ~p", [Error]),
@@ -297,7 +300,11 @@ send_payload(jpush, Host, Payload, _, AppID, _) ->
 					request_jpush_key_secret(Host, AppID);
 				_ ->
 					[JPushKey, JPushSecret] = H,
-					{true, "Found jpush key&secret from db", JPushKey, JPushSecret}
+					if (JPushKey == <<"0">>) or (JPushSecret == <<"0">>) ->
+						request_jpush_key_secret(Host, AppID);
+					true -> 
+						{true, "Found jpush key&secret from db", JPushKey, JPushSecret}
+					end					
 			end;
 		Error ->
 			?DEBUG("mod_kmsns: Query jpush key&secret from db faild, db error ~p", [Error]),
@@ -327,6 +334,10 @@ send_payload(jpush, Host, Payload, _, AppID, _) ->
 			Body = Payload,
 			HTTPOptions = [],
 			Options = [],
+
+			?DEBUG("mod_kmsns: jpush trying to send payload with these parameters: Address: ~p JPushKey: ~p, JPushSecret: ~p Payload: ~p",
+				[JPushHost, Key, Secret, Payload]),
+
 		    case httpc:request(Method, {JPushHost, Header, Type, Body}, HTTPOptions, Options) of
 		    	{ok, {_, _, ResponseBody}} ->
 		    		?DEBUG("mod_kmsns: Post to jpush success ~p", [ResponseBody]),
@@ -415,7 +426,8 @@ message(From, To, Packet) ->
 											%% 发送到apns
 											send_payload(apns, ToServer, Payload, DeviceToken, AppID, AppToken);
 										<<"jpush">> ->
-											Payload = string_format(?JPUSH_OBJECT, [DeviceToken, Body, JFrom, JTo]),
+											Payload = string_format(?JPUSH_OBJECT, 
+												[binary_to_list(DeviceToken), binary_to_list(Body), binary_to_list(JFrom), binary_to_list(JTo)]),
 											send_payload(jpush, ToServer, Payload, DeviceToken, AppID, AppToken);
 										<<"xiaomi">> ->
 											%% TODO: xiaomi
