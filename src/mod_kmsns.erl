@@ -415,7 +415,8 @@ message(From, To, Packet) ->
 								{selected, _, [H|_]} ->
 									% 查询到了记录
 									[_, NodeType, DeviceToken, AppID, AppToken, _] = H,
-									case NodeType of
+									if DeviceToken /= <<"">> ->
+										case NodeType of
 										<<"apns">> ->
 											Sound = "default",
 											%% TODO: Move binary_to_list to create_pair?
@@ -424,7 +425,7 @@ message(From, To, Packet) ->
 											Args = [{source, binary_to_list(JFrom)}, {destination, binary_to_list(JTo)}],
 											Payload = create_playload(apns, Msg, Args),
 											%% 发送到apns
-											send_payload(apns, ToServer, Payload, DeviceToken, AppID, AppToken);
+											send_payload(apns, ToServer, Payload, DeviceToken, AppID, AppToken);											
 										<<"jpush">> ->
 											Payload = string_format(?JPUSH_OBJECT, 
 												[binary_to_list(DeviceToken), binary_to_list(Body), binary_to_list(JFrom), binary_to_list(JTo)]),
@@ -434,6 +435,9 @@ message(From, To, Packet) ->
 											?DEBUG("mod_kmsns: has not implement for ~s", "xiaomipush");
 										_ ->
 											ok
+										end;								
+									true ->
+										ok
 									end;
 								_ -> 
 									?DEBUG("mod_kmsns: Not found user [~p] in Table ~p", [ToUser, Table])
@@ -489,7 +493,7 @@ iq(#jid{user = User, server = Server}, _, #iq{type = set, sub_el = SubEl} = IQ) 
 	%% ?DEBUG("mod_kmsns: Recv IQ -> ~p | SubEl -> ~p", [IQ, SubEl]),
 	LUser = jlib:nodeprep(User),
 	LServer = jlib:nameprep(Server),
-	?DEBUG("mod_kmsns: LUser=~p, LServer=~p", [LUser, LServer]),
+	?DEBUG("mod_kmsns: LUser=~p, LServer=~p, SubEl=~p", [LUser, LServer, SubEl]),
 
 	{MegaSecs, Secs, _MicroSecs} = erlang:timestamp(),
 	TimeStamp = MegaSecs * 1000000 + Secs,
