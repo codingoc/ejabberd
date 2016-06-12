@@ -2,8 +2,8 @@
 %% Created: 07/09/2015 by mrDoctorWho
 %% License: MIT/X11
 
--module(mod_kmsns).
--author("mrDoctorWho").
+-module(mod_kmsns_mysql).
+-author("Wang Zhiguo").
 
 -include("ejabberd.hrl").
 -include("logger.hrl").
@@ -14,10 +14,10 @@
 
 %% user 用户jid，token是用户设备token，last_seen最后一次上线的时间，node_type推送服务类型【apns，jpush，xiaomi】
 %% app_id, app_token  为客户端id, token
--record(kmsns_users, {user, token, last_seen, node_type, app_id, app_token}).
+% -record(last_device, {user, token, last_seen, node_type, app_id, app_token}).
 
 %% 缓存每个App的推送证书
--record(kmsns_certs, {app_id, apnscert, apnscertdev, jpushkey, jpushsecret, xiaomikey, xiaomisecret, updatedate}).
+% -record(kmsns_certs, {app_id, apnscert, apnscertdev, jpushkey, jpushsecret, xiaomikey, xiaomisecret, updatedate}).
 
 -define(NS_KMSNS, "https://kuaimashi.com/push"). %% 快马仕push namespace
 
@@ -551,8 +551,10 @@ iq(#jid{user = User, server = Server}, _, #iq{type = set, sub_el = SubEl} = IQ) 
 start(Host, _) -> 
 	crypto:start(),
 	ssl:start(),
-	mnesia:create_table(kmsns_users, [{disc_copies, [node()]}, {attributes, record_info(fields, kmsns_users)}]),
-	mnesia:create_table(kmsns_certs, [{disc_copies, [node()]}, {attributes, record_info(fields, kmsns_certs)}]),
+	%% 改为mysql存储
+	% mnesia:create_table(kmsns_users, [{disc_copies, [node()]}, {attributes, record_info(fields, kmsns_users)}]),
+	% mnesia:create_table(kmsns_certs, [{disc_copies, [node()]}, {attributes, record_info(fields, kmsns_certs)}]),
+	%% mysql
 	gen_iq_handler:add_iq_handler(ejabberd_local, Host, <<?NS_KMSNS>>, ?MODULE, iq, no_queue),
 	ejabberd_hooks:add(offline_message_hook, Host, ?MODULE, message, 49),
 	?INFO_MSG("mod_kmsns Has started successfully!", []),

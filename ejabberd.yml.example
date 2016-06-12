@@ -678,8 +678,8 @@ modules:
   mod_vcard:
     search: false
   mod_version: {}
-  ## mod_kmsns, 离线消息推送服务配置
-  mod_kmsns:
+  ## mod_kmsns_mysql, 离线消息推送服务配置
+  mod_kmsns_mysql:
     ## 证书服务器请求地址
     certinfo: "http://db.kms.com:8080/AccountSystem/certinfo"
     apnshost: "gateway.push.apple.com"
@@ -704,6 +704,9 @@ modules:
 ##
 
 allow_contrib_modules: true
+
+## 在客户端发送第一个stream时，需要携带AppID AppToken，此URL用于验证AppID，AppToken
+vertifytoken: "http://db.kms.com:8080/AccountSystem/vertifytoken"
 
 ###.
 ###'

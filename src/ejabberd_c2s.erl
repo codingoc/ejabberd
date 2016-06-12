@@ -384,7 +384,7 @@ wait_for_stream({xmlstreamstart, _Name, Attrs}, StateData) ->
 						{false, <<"No Appid or Token given.">>};
 						true -> 
 						%% 去token服务器验证token
-						case verify_appid_token(Appid, Token) of 
+						case verify_appid_token(Server, Appid, Token) of 
 							{true, _} -> 
 								{true, <<"Appid: ", Appid/binary, "  ", "Token: ", Token/binary>>};
 							{false, Reason} -> 
@@ -3159,35 +3159,43 @@ opt_type(resource_conflict) ->
 	(closenew) -> closenew;
 	(acceptnew) -> acceptnew
     end;
+opt_type(vertifytoken) -> fun iolist_to_binary/1;
 opt_type(_) ->
     [domain_certfile, max_fsm_queue, resource_conflict].
 
 %% 去token服务器验证token
-verify_appid_token(Appid, Token) ->
+verify_appid_token(Server, Appid, Token) ->
 	?DEBUG("CCDEBUG: ~s", ["verify_appid_token start"]),
+	LServer = jid:nameprep(Server),
 	Method = post,
-	URL = "http://db.kms.com:8080/AccountSystem/vertifytoken",
-	Header = [],
-	Type = "application/x-www-form-urlencoded",
-	Body = lists:concat(["appid=", binary_to_list(Appid), "&token=", binary_to_list(Token), "&type=", "xml"]),
-	HTTPOptions = [],
-	Options = [],
-    case httpc:request(Method, {URL, Header, Type, Body}, HTTPOptions, Options) of   
-        {ok, {_, _, ResponseBody}} ->
-        	?DEBUG("CCDEBUG: Token verify request response  ~s", [ResponseBody]), 
-        	#xmlel{
-        	name = <<"data">>, 
-        	children = [
-        	#xmlel{name = <<"code">>, children = [{xmlcdata, Code}]}, 
-        	#xmlel{name = <<"alt">>, children = [{xmlcdata, Alt}]}, 
-        	#xmlel{name = <<"notifytime">>, children = [{xmlcdata, _}]}
-        	]} = fxml_stream:parse_element(<<(list_to_binary(ResponseBody))/binary>>),
-        	case Code of
-        		<<"200">> -> {true, Alt};
-        		_ -> {false, Alt}
-        	end;
-    	{error, Reason} ->
-      		{false, Reason}
-    end.
+	URL = ejabberd_config:get_option({vertifytoken, LServer}, opt_type(vertifytoken), undefined),
+	case URL of
+		undefined -> {false, <<"server fault vertifytoken NOT configed in ejabberd.yml.">>};
+		_ ->
+			% URL = "http://db.kms.com:8080/AccountSystem/vertifytoken",
+			SURL = binary_to_list(URL),
+			Header = [],
+			Type = "application/x-www-form-urlencoded",
+			Body = lists:concat(["appid=", binary_to_list(Appid), "&token=", binary_to_list(Token), "&type=", "xml"]),
+			HTTPOptions = [],
+			Options = [],
+		    case httpc:request(Method, {SURL, Header, Type, Body}, HTTPOptions, Options) of   
+		        {ok, {_, _, ResponseBody}} ->
+		        	?DEBUG("CCDEBUG: Token verify request response  ~s", [ResponseBody]), 
+		        	#xmlel{
+		        	name = <<"data">>, 
+		        	children = [
+		        	#xmlel{name = <<"code">>, children = [{xmlcdata, Code}]}, 
+		        	#xmlel{name = <<"alt">>, children = [{xmlcdata, Alt}]}, 
+		        	#xmlel{name = <<"notifytime">>, children = [{xmlcdata, _}]}
+		        	]} = fxml_stream:parse_element(<<(list_to_binary(ResponseBody))/binary>>),
+		        	case Code of
+		        		<<"200">> -> {true, Alt};
+		        		_ -> {false, Alt}
+		        	end;
+		    	{error, Reason} ->
+		      		{false, Reason}
+		    end	
+	end.
 
 
