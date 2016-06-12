@@ -328,3 +328,25 @@ CREATE TABLE sm (
 CREATE UNIQUE INDEX i_sid ON sm(usec, pid(75));
 CREATE INDEX i_node ON sm(node(75));
 CREATE INDEX i_username ON sm(username);
+
+CREATE TABLE `push_cert` (
+  `appid` varchar(20) NOT NULL,
+  `apnscert` text NOT NULL,
+  `apnscertdev` text NOT NULL,
+  `jpushkey` varchar(64) NOT NULL DEFAULT '0',
+  `jpushsecret` varchar(64) NOT NULL DEFAULT '0',
+  `xiaomikey` varchar(64) NOT NULL DEFAULT '0',
+  `xiaomisecret` varchar(64) NOT NULL DEFAULT '0',
+  `updatetime` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`appid`)
+) ENGINE=InnoDB CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+CREATE TABLE `last_device` (
+  `user` varchar(191) NOT NULL,
+  `nodetype` varchar(191) NOT NULL DEFAULT '0',
+  `token` varchar(100) NOT NULL DEFAULT '0',
+  `appid` varchar(20) NOT NULL DEFAULT '0',
+  `apptoken` varchar(100) NOT NULL DEFAULT '0',
+  `updatetime` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`user`)
+) ENGINE=InnoDB CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
