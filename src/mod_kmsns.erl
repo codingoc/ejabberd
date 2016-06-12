@@ -47,8 +47,7 @@
     \"alert\": \"~s\",
     \"android\": {
       \"extras\": {
-        \"from\": \"~s\",
-        \"to\": \"~s\"
+        \"source\": \"~s\"
       }
     }
   }
@@ -415,20 +414,27 @@ message(From, To, Packet) ->
 								{selected, _, [H|_]} ->
 									% 查询到了记录
 									[_, NodeType, DeviceToken, AppID, AppToken, _] = H,
+									% 推送通知栏显示的内容由message节点的alt属性值决定
+									TmpAltBody = fxml:get_path_s(Packet, [{attr, <<"alt">>}]),
+									AltBody = if (TmpAltBody == <<>>) or (TmpAltBody == <<"">>) ->
+										unicode:characters_to_binary("收到一条快马仕消息");
+										true -> TmpAltBody
+									end,
+									%
 									if DeviceToken /= <<"">> ->
 										case NodeType of
 										<<"apns">> ->
 											Sound = "default",
 											%% TODO: Move binary_to_list to create_pair?
 											%% Badges?
-											Msg = [{alert, binary_to_list(Body)}, {sound, Sound}],
-											Args = [{source, binary_to_list(JFrom)}, {destination, binary_to_list(JTo)}],
+											Msg = [{alert, binary_to_list(AltBody)}, {sound, Sound}],
+											Args = [{source, binary_to_list(base64:encode(Body))}],
 											Payload = create_playload(apns, Msg, Args),
 											%% 发送到apns
 											send_payload(apns, ToServer, Payload, DeviceToken, AppID, AppToken);											
 										<<"jpush">> ->
 											Payload = string_format(?JPUSH_OBJECT, 
-												[binary_to_list(DeviceToken), binary_to_list(Body), binary_to_list(JFrom), binary_to_list(JTo)]),
+												[binary_to_list(DeviceToken), binary_to_list(AltBody), binary_to_list(base64:encode(Body))]),
 											send_payload(jpush, ToServer, Payload, DeviceToken, AppID, AppToken);
 										<<"xiaomi">> ->
 											%% TODO: xiaomi
