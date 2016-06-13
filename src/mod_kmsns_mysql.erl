@@ -95,12 +95,12 @@ request_cert_for_apns(Host, AppID) ->
         			end,
         			%% 存储到数据库缓存
         			%% -record(kmsns_certs, {app_id, apnscert, apnscertdev, jpushkey, jpushsecret, xiaomikey, xiaomisecret, updatedate}).
-        			{MegaSecs, Secs, _MicroSecs} = erlang:timestamp(),
-					TimeStamp = MegaSecs * 1000000 + Secs,
+        			%
+					TimeStamp = unix_timestamp_to_string(),
 					%% mysql 数据库
 					Table = <<"push_cert">>,
 					Fields = [<<"appid">>, <<"apnscert">>, <<"apnscertdev">>, <<"updatetime">>],
-					Vals = [AppID, ApnsCert, ApnsCertDev, list_to_binary(integer_to_list(TimeStamp))],
+					Vals = [AppID, ApnsCert, ApnsCertDev, list_to_binary(TimeStamp)],
 					Where = <<"appid", "='", AppID/binary, "'">>,
 					case catch sql_queries:update(Host, Table, Fields, Vals, Where) of 
 						ok -> 
@@ -160,12 +160,12 @@ request_jpush_key_secret(Host, AppID) ->
         		<<"200">> -> 
         			%% 存储到数据库缓存
         			%% -record(kmsns_certs, {app_id, apnscert, apnscertdev, jpushkey, jpushsecret, xiaomikey, xiaomisecret, updatedate}).
-        			{MegaSecs, Secs, _MicroSecs} = erlang:timestamp(),
-					TimeStamp = MegaSecs * 1000000 + Secs,        			
+        			%
+					TimeStamp = unix_timestamp_to_string(),        			
         			%% mysql数据库
         			Table = <<"push_cert">>,
 					Fields = [<<"appid">>, <<"jpushkey">>, <<"jpushsecret">>, <<"updatetime">>],
-					Vals = [AppID, JPushKey, JPushSecret, list_to_binary(integer_to_list(TimeStamp))],
+					Vals = [AppID, JPushKey, JPushSecret, list_to_binary(TimeStamp)],
 					Where = <<"appid", "='", AppID/binary, "'">>,
 					case catch sql_queries:update(Host, Table, Fields, Vals, Where) of 
 						ok -> 
@@ -501,8 +501,8 @@ iq(#jid{user = User, server = Server}, _, #iq{type = set, sub_el = SubEl} = IQ) 
 	LServer = jlib:nameprep(Server),
 	?DEBUG("mod_kmsns: LUser=~p, LServer=~p, SubEl=~p", [LUser, LServer, SubEl]),
 
-	{MegaSecs, Secs, _MicroSecs} = erlang:timestamp(),
-	TimeStamp = MegaSecs * 1000000 + Secs,
+	% 
+	TimeStamp = unix_timestamp_to_string(),
 
 	% 设备token
 	Token = fxml:get_tag_cdata(fxml:get_subtag(SubEl, <<"token">>)),
@@ -513,7 +513,7 @@ iq(#jid{user = User, server = Server}, _, #iq{type = set, sub_el = SubEl} = IQ) 
 	%% 写入mysql 的 lastdevice
 	Table = <<"last_device">>,
 	Fields = [<<"user">>, <<"nodetype">>, <<"token">>, <<"appid">>, <<"apptoken">>, <<"updatetime">>],
-	Vals = [User, NodeType, Token, AppID, AppToken, list_to_binary(integer_to_list(TimeStamp))],
+	Vals = [User, NodeType, Token, AppID, AppToken, list_to_binary(TimeStamp)],
 	Where = <<"user", "='", User/binary, "'">>,
 	case catch sql_queries:update(LServer, Table, Fields, Vals, Where) of 
 		ok -> 
@@ -576,3 +576,12 @@ mod_opt_type(jpushhost) -> fun iolist_to_binary/1;
 mod_opt_type(jpushport) -> fun(I) when is_integer(I) -> I end;
 mod_opt_type(_) ->
     [certinfo, apnshost, apnshost, env, jpushhost, jpushport].
+
+
+%% 将unix时间转换为YY-MM-DD hh:mm:ss字符串
+unix_timestamp_to_string() ->
+	{{Year, Month, Day}, {Hour, Minute, Second}} = calendar:now_to_local_time(erlang:now()),
+	lists:flatten(io_lib:format("~4..0w-~2..0w-~2..0wT~2..0w:~2..0w:~2..0w",[Year,Month,Day,Hour,Minute,Second])).
+
+
+
