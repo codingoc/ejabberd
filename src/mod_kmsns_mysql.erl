@@ -250,7 +250,7 @@ send_payload(apns, Host, Payload, Token, AppID, _) ->
 			?DEBUG("mod_kmsns: APNS trying to send payload with these parameters: Address: ~p Port: ~p Cert: ~p, Token: ~p Payload: ~p",
 				[ApnsHost, ApnsPort, FinalCert, Token, Payload]),
 
-			[{'Certificate', CertDER, not_encrypted}, _, {'RSAPrivateKey', KeyDER, not_encrypted}] = public_key:pem_decode(FinalCert), 
+			[{'Certificate', CertDER, not_encrypted}, {'RSAPrivateKey', KeyDER, not_encrypted}] = public_key:pem_decode(FinalCert), 
 			Options = [{cert, CertDER},
 					 {key, {'RSAPrivateKey', KeyDER}}
 		             %{versions, ['tlsv1.2']},
