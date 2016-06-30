@@ -417,7 +417,7 @@ message(From, To, Packet) ->
 									% 推送通知栏显示的内容由message节点的alt属性值决定
 									TmpAltBody = fxml:get_path_s(Packet, [{attr, <<"alt">>}]),
 									AltBody = if (TmpAltBody == <<>>) or (TmpAltBody == <<"">>) ->
-										unicode:characters_to_binary("收到一条快马仕消息");
+										unicode:characters_to_binary("收到一条消息");
 										true -> TmpAltBody
 									end,
 									%
