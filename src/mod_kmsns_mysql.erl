@@ -404,7 +404,7 @@ message(From, To, Packet) ->
 											% 构造Payload
 											% {[{foo, [<<"bing">>, 2.3, true]}]} -> <<"{\"foo\":[\"bing\",2.3,true]}">>
 											% {"aps":{"alert":"This is some fancy message.","sound": "default","badge":1}}
-											Doc = {[{aps, {{alert, AltBody}, {sound, <<"default">>}, {badge, 1}}}, {source, base64:encode(Body)}]},
+											Doc = {[{aps, {[{alert, AltBody}, {sound, <<"default">>}, {badge, 1}]}}, {source, base64:encode(Body)}]},
 											Payload = jiffy:encode(Doc),
 											?DEBUG("mod_kmsns: APNS Payload ~p.", [Payload]),
 											
