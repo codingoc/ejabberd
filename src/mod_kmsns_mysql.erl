@@ -263,7 +263,7 @@ send_payload(apns, Host, Payload, Token, AppID, _) ->
 
 			case ssl:connect(ApnsHost, ApnsPort, Options, ?Timeout) of
 				{ok, Socket} ->
-					PayloadBin = list_to_binary(Payload),
+					PayloadBin = Payload,
 					PayloadLength = size(PayloadBin),
 					TokenNum = erlang:binary_to_integer(Token, 16),
 					TokenBin = <<TokenNum:32/integer-unit:8>>,
@@ -357,29 +357,6 @@ send_payload(_, Host, Payload, Token, AppID, _) ->
 	?DEBUG("mod_kmsns: jpush ~s ~s ~s ~s", [Host, Payload, Token, AppID]),
 	ok.
 
-
-create_json(List1, List2) ->
-	lists:append(["{\"aps\":{", create_keyvalue(List1), "}, ", create_keyvalue(List2), "}"]).
-
-create_keyvalue([Head]) ->
-	create_pair(Head);
-create_keyvalue([Head|Tail]) ->
-	lists:append([create_pair(Head), ",", create_keyvalue(Tail)]).
- 
-create_pair({Key, Value}) ->
-	lists:append([add_quotes(atom_to_list(Key)), ":", add_quotes(Value)]).
-add_quotes(String) ->
-	lists:append(["\"", String, "\""]).
-
-create_playload(apns, Msg, Args) ->
-	create_json(Msg, Args);
-create_playload(jpush, _, _) ->
-	ok;
-create_playload(xiaomi, _, _) ->
-	ok;
-create_playload(_, _, _) ->
-	ok.
-
 message(From, To, Packet) ->
 	Type = fxml:get_tag_attr_s(<<"type">>, Packet),
 	% ?DEBUG("Offline message", []),
@@ -424,12 +401,19 @@ message(From, To, Packet) ->
 									if DeviceToken /= <<"">> ->
 										case NodeType of
 										<<"apns">> ->
-											Sound = "default",
-											%% TODO: Move binary_to_list to create_pair?
-											%% Badges?
-											Msg = [{alert, binary_to_list(AltBody)}, {sound, Sound}, {badge, "1"}],
-											Args = [{source, binary_to_list(base64:encode(Body))}],
-											Payload = create_playload(apns, Msg, Args),
+											% 构造Payload
+											% {[{foo, [<<"bing">>, 2.3, true]}]} -> <<"{\"foo\":[\"bing\",2.3,true]}">>
+											% {"aps":{"alert":"This is some fancy message.","sound": "default","badge":1}}
+											Doc = {[{aps, {{alert, AltBody}, {sound, <<"default">>}, {badge, 1}}}, {source, base64:encode(Body)}]},
+											Payload = jiffy:encode(Doc),
+											?DEBUG("mod_kmsns: APNS Payload ~p.", [Payload]),
+											
+											% %% FIXME: Badges?
+											% Sound = "default",
+											% Msg = [{alert, binary_to_list(AltBody)}, {sound, Sound}],
+											% Args = [{source, binary_to_list(base64:encode(Body))}],
+											% Payload = create_playload(apns, Msg, Args),
+											
 											%% 发送到apns
 											send_payload(apns, ToServer, Payload, DeviceToken, AppID, AppToken);											
 										<<"jpush">> ->
