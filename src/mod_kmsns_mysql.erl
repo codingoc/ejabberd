@@ -427,7 +427,7 @@ message(From, To, Packet) ->
 											Sound = "default",
 											%% TODO: Move binary_to_list to create_pair?
 											%% Badges?
-											Msg = [{alert, binary_to_list(AltBody)}, {sound, Sound}],
+											Msg = [{alert, binary_to_list(AltBody)}, {sound, Sound}, {badge, "1"}],
 											Args = [{source, binary_to_list(base64:encode(Body))}],
 											Payload = create_playload(apns, Msg, Args),
 											%% 发送到apns
