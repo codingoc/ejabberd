@@ -1,7 +1,8 @@
-%% Google Cloud Messaging for Ejabberd
-%% Created: 07/09/2015 by mrDoctorWho
+%% Message Notification Service for Ejabberd
+%% Created: 07/09/2015 by mrDoctorWho，Modify by WangZhiguo 05/05/2016
 %% License: MIT/X11
 
+%% 快马仕消息服务器离线推送服务
 -module(mod_kmsns_mysql).
 -author("Wang Zhiguo").
 
@@ -19,7 +20,8 @@
 %% 缓存每个App的推送证书
 % -record(kmsns_certs, {app_id, apnscert, apnscertdev, jpushkey, jpushsecret, xiaomikey, xiaomisecret, updatedate}).
 
--define(NS_KMSNS, "https://kuaimashi.com/push"). %% 快马仕push namespace
+%% 快马仕push namespace
+-define(NS_KMSNS, "https://kuaimashi.com/push").
 
 -export([start/2, stop/1, message/3, iq/3, mod_opt_type/1]).
 
@@ -93,10 +95,10 @@ request_cert_for_apns(Host, AppID) ->
         				<<"">> -> <<"">>;
         				_ -> base64:decode(ApnsCertDevBase64)
         			end,
-        			%% 存储到数据库缓存
-        			%% -record(kmsns_certs, {app_id, apnscert, apnscertdev, jpushkey, jpushsecret, xiaomikey, xiaomisecret, updatedate}).
-        			%
+        			
 					TimeStamp = unix_timestamp_to_string(),
+
+					%% 存储到数据库缓存
 					%% mysql 数据库
 					Table = <<"push_cert">>,
 					Fields = [<<"appid">>, <<"apnscert">>, <<"apnscertdev">>, <<"updatetime">>],
@@ -111,6 +113,8 @@ request_cert_for_apns(Host, AppID) ->
 					%% mysql 数据库
 
         			%% mnesia数据库
+        			% -record(kmsns_certs, {app_id, apnscert, apnscertdev, jpushkey, jpushsecret, xiaomikey, xiaomisecret, updatedate}).
+        			%
         			% F = fun() -> 
         			% 	mnesia:write(#kmsns_certs{app_id=AppID, apnscert=ApnsCert, apnscertdev=ApnsCertDev, 
         			% 	jpushkey= <<"">>, jpushsecret= <<"">>, xiaomikey= <<"">>, xiaomisecret= <<"">>, updatedate=TimeStamp}) 
@@ -158,10 +162,9 @@ request_jpush_key_secret(Host, AppID) ->
         	]} = fxml_stream:parse_element(<<(list_to_binary(ResponseBody))/binary>>),
         	case Code of
         		<<"200">> -> 
+        			TimeStamp = unix_timestamp_to_string(),
+
         			%% 存储到数据库缓存
-        			%% -record(kmsns_certs, {app_id, apnscert, apnscertdev, jpushkey, jpushsecret, xiaomikey, xiaomisecret, updatedate}).
-        			%
-					TimeStamp = unix_timestamp_to_string(),        			
         			%% mysql数据库
         			Table = <<"push_cert">>,
 					Fields = [<<"appid">>, <<"jpushkey">>, <<"jpushsecret">>, <<"updatetime">>],
@@ -175,7 +178,9 @@ request_jpush_key_secret(Host, AppID) ->
 					end,
         			%% mysql数据库
 
-        			%% mnesia数据库
+        			%% mnesia数据库        			
+        			% -record(kmsns_certs, {app_id, apnscert, apnscertdev, jpushkey, jpushsecret, xiaomikey, xiaomisecret, updatedate}).
+        			%
         			% F = fun() -> 
         			% 	mnesia:write(#kmsns_certs{app_id=AppID, apnscert= <<"">>, apnscertdev= <<"">>, 
         			% 	jpushkey=JPushKey, jpushsecret=JPushSecret, xiaomikey= <<"">>, xiaomisecret= <<"">>, updatedate=TimeStamp}) 
@@ -197,7 +202,7 @@ request_jpush_key_secret(Host, AppID) ->
       		{false, Reason, <<"">>, <<"">>}
     end.
 
-% partially done by uwe-arzt.de
+%% APNS发送Payload
 send_payload(apns, Host, Payload, Token, AppID, _) ->
 	%% 读取缓存中证书文件
 	%% mysql数据库
@@ -236,6 +241,7 @@ send_payload(apns, Host, Payload, Token, AppID, _) ->
 	% 		{true, "Found APNS cert from local cached", ApnsCertCached, ApnsCertDevCached}
 	% end,
 	%% mnesia数据库
+
 	case {Result, Info} of
 		{true, _} ->
 			%% 获取配置文件中部署环境，生产环境使用生产环境证书，开发环境使用开发环境证书
@@ -310,6 +316,7 @@ send_payload(jpush, Host, Payload, _, AppID, _) ->
 			{false, "DB error", <<"">>, <<"">>}
 	end,
 	%% mysql数据库
+
 	%% mnesia数据库 
 	% Record = mnesia:dirty_read(kmsns_certs, AppID),
 	% {Result, Info, Key, Secret} = case Record of 
@@ -472,10 +479,10 @@ message(From, To, Packet) ->
 
 %% <iq to="YourServer" type="set">
 %%   <register xmlns="https://kuaimashi.com/push" >
-%%    <appid>APPID</appid>
-%%	<apptoken>APPTOKEN</apptoken>
-%%	<node>NODE_TYPE</node>  %% 推送服务器节点类型，[apns, jpush]
-%% 	<token>DEVICE_TOKEN</token>
+%%     <appid>APPID</appid>
+%%	   <apptoken>APPTOKEN</apptoken>
+%%	   <node>NODE_TYPE</node>  %% 推送服务器节点类型，[apns, jpush]
+%% 	   <token>DEVICE_TOKEN</token>
 %%   </register>
 %% </iq>
 
@@ -546,12 +553,7 @@ start(Host, _) ->
 
 stop(_) -> ok.
 
-
-% mod_opt_type(address) -> fun iolist_to_binary/1; %binary_to_list?
-% mod_opt_type(port) -> fun(I) when is_integer(I) -> I end;
-% mod_opt_type(certfile) -> fun iolist_to_binary/1;
-% mod_opt_type(keyfile) -> fun iolist_to_binary/1;
-% mod_opt_type(password) -> fun iolist_to_binary/1;
+%% 配置选项
 mod_opt_type(certinfo) -> fun iolist_to_binary/1;
 mod_opt_type(apnshost) -> fun iolist_to_binary/1;
 mod_opt_type(apnsport) -> fun(I) when is_integer(I) -> I end;
